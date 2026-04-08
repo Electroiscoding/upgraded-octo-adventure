@@ -5,7 +5,6 @@ import csv
 import logging
 import argparse
 import io
-import re
 from sarvamai import SarvamAI
 
 # Set up robust logging
@@ -14,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def extract_csv_from_text(text):
     """Extracts and parses CSV data directly from the AI's text response."""
-    # 1. Clean markdown code blocks if the AI tries to be helpful
+    # Clean markdown code blocks if the AI tries to be helpful
     if "```csv" in text:
         text = text.split("```csv")[1].split("```")[0].strip()
     elif "```" in text:
@@ -25,26 +24,24 @@ def extract_csv_from_text(text):
         return None
 
     try:
-        # 2. Treat the raw string as a file to parse it safely
+        # Treat the raw string as a file to parse it safely
         csv_file = io.StringIO(text)
         reader = csv.DictReader(csv_file)
         
-        # Lowercase headers in case the AI capitalized them (e.g., "Question" -> "question")
+        # Lowercase headers in case the AI capitalized them
         if reader.fieldnames:
             reader.fieldnames = [str(field).strip().lower() for field in reader.fieldnames]
             
-        # 3. Validate that we got the exact columns we need
+        # Validate that we got the exact columns we need
         required_keys = ['question', 'answer', 'explanation']
         if not reader.fieldnames or not all(k in reader.fieldnames for k in required_keys):
             logger.error(f"Missing headers. Found: {reader.fieldnames}")
             return None
 
-        # 4. Extract rows
+        # Extract rows safely
         data = []
         for row in reader:
-            # Ensure the row has data and isn't just empty columns
-            if row.get('question') and row.get('answer'):
-                data.append(row)
+            data.append(row)
                 
         return data
         
@@ -55,7 +52,6 @@ def extract_csv_from_text(text):
 def get_batch_with_retry(client, required_count, attempt=1, max_retries=5):
     """Fetches a batch with exponential backoff, requesting CSV format."""
     try:
-        # Prompt explicitly enforces strict CSV format
         prompt = f"""Generate {required_count} unique, hyper-detailed science entries (Physics, Chemistry, Mathematics).
         Structure:
         1. Question: A deep, conceptual question based on first principles.
@@ -77,7 +73,12 @@ def get_batch_with_retry(client, required_count, attempt=1, max_retries=5):
             stream=False
         )
 
-        content = response.choices[0].message.content.strip()
+        # API Safety Net: Check if the API returned absolutely nothing
+        raw_content = response.choices[0].message.content
+        if raw_content is None:
+            raise ValueError("Sarvam API returned an empty response. (Possible safety filter or server glitch).")
+            
+        content = raw_content.strip()
         data = extract_csv_from_text(content)
         
         if data:
@@ -103,7 +104,7 @@ def main():
 
     api_key = os.environ.get("SARVAM_API_KEY")
     if not api_key:
-        logger.error("SARVAM_API_KEY environment variable is missing!")
+        logger.error("SARVAM_API_KEY environment variable is missing! Export it or set it in GitHub Secrets.")
         exit(1)
 
     client = SarvamAI(api_subscription_key=api_key)
@@ -132,9 +133,14 @@ def main():
             if data and isinstance(data, list):
                 valid_items = 0
                 for item in data:
-                    # Filter out any weird extra columns the AI might have added
-                    filtered_item = {k: item.get(k, "").strip() for k in fieldnames}
+                    filtered_item = {}
+                    for k in fieldnames:
+                        val = item.get(k)
+                        # Safely handle 'None' if the AI skipped a column in the CSV
+                        clean_val = "" if val is None else str(val).strip()
+                        filtered_item[k] = clean_val
                     
+                    # Only save the row if all 3 columns actually have text
                     if all(filtered_item.values()):
                         writer.writerow(filtered_item)
                         valid_items += 1
