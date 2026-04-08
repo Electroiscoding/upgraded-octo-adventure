@@ -1,0 +1,53 @@
+name: Generate Science Dataset
+
+on:
+  workflow_dispatch:
+    inputs:
+      total_rows:
+        description: 'Total rows to generate in this run'
+        required: true
+        default: '50'
+      batch_size:
+        description: 'Batch size per API call'
+        required: true
+        default: '5'
+  # Optional: Uncomment below to run automatically every night at midnight UTC
+  # schedule:
+  #   - cron: '0 0 * * *' 
+
+permissions:
+  contents: write
+
+jobs:
+  generate-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip' # Speeds up execution
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run generation script
+        env:
+          SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+        run: |
+          python generate_dataset.py \
+            --total ${{ github.event.inputs.total_rows || 100 }} \
+            --batch ${{ github.event.inputs.batch_size || 5 }} \
+            --output science_detailed_dataset.csv
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action Bot"
+          git add science_detailed_dataset.csv
+          git commit -m "data: append new generated science Q&A entries" || echo "No new data to commit"
+          git push
