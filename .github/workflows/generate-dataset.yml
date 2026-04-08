@@ -11,9 +11,6 @@ on:
         description: 'Batch size per API call'
         required: true
         default: '5'
-  # Optional: Uncomment below to run automatically every night at midnight UTC
-  # schedule:
-  #   - cron: '0 0 * * *' 
 
 permissions:
   contents: write
@@ -30,7 +27,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip' # Speeds up execution
+          cache: 'pip'
 
       - name: Install dependencies
         run: pip install -r requirements.txt
